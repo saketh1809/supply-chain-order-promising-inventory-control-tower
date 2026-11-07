@@ -1,0 +1,536 @@
+// Supply Chain Order Promising & Inventory Control Tower - database schema (MySQL 8)
+//
+// Conventions
+//  - Quantities are INT (units, never fractional). Dates that are business days are DATE (UTC day).
+//  - `version` columns implement optimistic concurrency for user-edited aggregates.
+//  - Denormalized order/line fields (allocatedQty, backorderedQty, promisedShipDate, riskLevel...)
+//    are *derived* by the allocation engine on every recalculation and are never edited directly.
+//  - Append-only tables (AuditLog, InventoryAdjustment) are protected by MySQL triggers
+//    (see migrations/*_immutability_triggers) that reject UPDATE/DELETE.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLANNER
+  SUPPORT
+  ADMIN
+}
+
+enum Priority {
+  HIGH
+  MED
+  LOW
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  FULFILLING
+  SHIPPED
+  CANCELED
+}
+
+enum AllocationStatus {
+  UNALLOCATED
+  FULLY_ALLOCATED
+  PARTIALLY_ALLOCATED
+  BACKORDERED
+  SHIPPED
+  NOT_APPLICABLE
+}
+
+enum RiskLevel {
+  ON_TRACK
+  AT_RISK
+  CRITICAL
+}
+
+enum ReceiptStatus {
+  PLANNED
+  IN_TRANSIT
+  RECEIVED
+  CANCELED
+}
+
+enum AllocationSource {
+  ON_HAND
+  INBOUND
+}
+
+enum AllocationRecordStatus {
+  ACTIVE
+  RELEASED
+}
+
+enum MovementType {
+  OPENING_BALANCE
+  MANUAL_ADJUSTMENT
+  RECEIPT_RECEIVED
+  SHIPMENT
+}
+
+enum ExceptionType {
+  PROMISE_DATE_AT_RISK
+  BACKORDER
+  DELAYED_INBOUND
+  CANCELED_INBOUND_DEPENDENCY
+  HIGH_PRIORITY_INSUFFICIENT_STOCK
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
+enum AIInteractionType {
+  PLANNER_NOTE
+  CUSTOMER_COMMUNICATION
+  EXCEPTION_SUMMARY
+  SHORTAGE_INSIGHTS
+}
+
+enum AIInteractionStatus {
+  GENERATED
+  PROPOSED
+  APPROVED
+  PARTIALLY_APPLIED
+  REJECTED
+  STALE
+  FAILED
+}
+
+enum CommunicationStatus {
+  DRAFT
+  SENT
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique @db.VarChar(255)
+  name      String   @db.VarChar(120)
+  role      UserRole @default(PLANNER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs       AuditLog[]
+  adjustments     InventoryAdjustment[]
+  createdOrders   Order[]
+  createdReceipts InboundReceipt[]
+  shipments       Shipment[]
+  aiInteractions  AIInteraction[]         @relation("AIRequester")
+  aiDecisions     AIInteraction[]         @relation("AIDecider")
+  communications  CustomerCommunication[]
+  exceptionsResolved Exception[]          @relation("ExceptionResolver")
+}
+
+model Sku {
+  id             Int      @id @default(autoincrement())
+  skuCode        String   @unique @db.VarChar(64)
+  name           String   @db.VarChar(255)
+  unitOfMeasure  String?  @db.VarChar(32)
+  // Replenishment lead time (days). Used to estimate promise dates for backordered units.
+  leadTimeDays   Int?
+  // Target minimum available-to-promise. SKUs below this are flagged as low stock.
+  safetyStockQty Int      @default(10)
+  version        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  balances     InventoryBalance[]
+  adjustments  InventoryAdjustment[]
+  receipts     InboundReceipt[]
+  orderLines   OrderLine[]
+  allocations  Allocation[]
+  exceptions   Exception[]
+
+  @@index([name])
+}
+
+model Location {
+  id           Int      @id @default(autoincrement())
+  locationCode String   @unique @db.VarChar(32)
+  name         String   @db.VarChar(255)
+  timezone     String?  @db.VarChar(64)
+  isActive     Boolean  @default(true)
+  version      Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  balances          InventoryBalance[]
+  adjustments       InventoryAdjustment[]
+  receipts          InboundReceipt[]
+  preferredByLines  OrderLine[]          @relation("LinePreferredLocation")
+  fulfillingLines   OrderLine[]          @relation("LineFulfillmentLocation")
+  preferredByOrders Order[]              @relation("OrderPreferredLocation")
+  preferredByCustomers Customer[]
+  allocations       Allocation[]
+  shipments         Shipment[]
+  exceptions        Exception[]
+}
+
+model Customer {
+  id                  Int      @id @default(autoincrement())
+  name                String   @unique @db.VarChar(255)
+  preferredLocationId Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  preferredLocation Location?  @relation(fields: [preferredLocationId], references: [id])
+  orders            Order[]
+}
+
+model Order {
+  id                  Int              @id @default(autoincrement())
+  orderNumber         String           @unique @db.VarChar(64)
+  customerId          Int
+  priority            Priority         @default(MED)
+  // Denormalized sort/filter ranks (HIGH=0, MED=1, LOW=2) and risk ranks (CRITICAL=0, AT_RISK=1, ON_TRACK=2)
+  priorityRank        Int              @default(1)
+  status              OrderStatus      @default(DRAFT)
+  allocationStatus    AllocationStatus @default(UNALLOCATED)
+  riskLevel           RiskLevel        @default(ON_TRACK)
+  riskRank            Int              @default(2)
+  requestedShipDate   DateTime?        @db.Date
+  // Derived: latest effective promised ship date across open lines.
+  promisedShipDate    DateTime?        @db.Date
+  backorderedQty      Int              @default(0)
+  preferredLocationId Int?
+  createdById         Int?
+  version             Int              @default(0)
+  confirmedAt         DateTime?
+  shippedAt           DateTime?
+  canceledAt          DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  customer          Customer               @relation(fields: [customerId], references: [id])
+  preferredLocation Location?              @relation("OrderPreferredLocation", fields: [preferredLocationId], references: [id])
+  createdBy         User?                  @relation(fields: [createdById], references: [id])
+  lines             OrderLine[]
+  shipments         Shipment[]
+  exceptions        Exception[]
+  communications    CustomerCommunication[]
+
+  @@index([status])
+  @@index([priorityRank, createdAt])
+  @@index([riskRank])
+  @@index([requestedShipDate])
+  @@index([promisedShipDate])
+  @@index([createdAt])
+  @@index([customerId])
+}
+
+model OrderLine {
+  id                    Int              @id @default(autoincrement())
+  orderId               Int
+  lineNumber            Int
+  skuId                 Int
+  requestedQty          Int
+  shippedQty            Int              @default(0)
+  // Customer/planner preference. Null = no preference (engine evaluates all locations).
+  preferredLocationId   Int?
+  // Denormalized engine output
+  allocatedQty          Int              @default(0)
+  backorderedQty        Int              @default(0)
+  allocationStatus      AllocationStatus @default(UNALLOCATED)
+  calculatedPromisedDate DateTime?       @db.Date
+  earliestShipDate      DateTime?        @db.Date
+  expectedCompletionDate DateTime?       @db.Date
+  fulfillmentLocationId Int?
+  // Planner override (preserved separately from the calculated date)
+  manualPromisedDate    DateTime?        @db.Date
+  manualPromiseReason   String?          @db.VarChar(500)
+  manualPromiseSetById  Int?
+  manualPromiseSetAt    DateTime?
+  version               Int              @default(0)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  canceledAt            DateTime?
+
+  order                Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku                  Sku          @relation(fields: [skuId], references: [id])
+  preferredLocation    Location?    @relation("LinePreferredLocation", fields: [preferredLocationId], references: [id])
+  fulfillmentLocation  Location?    @relation("LineFulfillmentLocation", fields: [fulfillmentLocationId], references: [id])
+  allocations          Allocation[]
+  shipmentLines        ShipmentLine[]
+  exceptions           Exception[]
+
+  @@unique([orderId, lineNumber])
+  @@index([skuId])
+  @@index([preferredLocationId])
+  @@index([fulfillmentLocationId])
+}
+
+// On-hand quantity per SKU per location. CHECK (onHand >= 0) is added in a migration.
+model InventoryBalance {
+  id         Int      @id @default(autoincrement())
+  skuId      Int
+  locationId Int
+  onHand     Int      @default(0)
+  version    Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sku      Sku      @relation(fields: [skuId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([skuId, locationId])
+  @@index([locationId])
+}
+
+// Append-only inventory ledger. Every on-hand change (manual adjustment, receipt, shipment)
+// creates exactly one row. `referenceKey` is UNIQUE: it is the database-level idempotency guard
+// (e.g. "RECEIPT:42" can only ever be booked once).
+model InventoryAdjustment {
+  id               Int          @id @default(autoincrement())
+  adjustmentNumber String       @unique @db.VarChar(40)
+  movementType     MovementType
+  skuId            Int
+  locationId       Int
+  quantityDelta    Int
+  previousOnHand   Int
+  newOnHand        Int
+  reason           String       @db.VarChar(500)
+  referenceKey     String?      @unique @db.VarChar(120)
+  userId           Int?
+  createdAt        DateTime     @default(now())
+
+  sku      Sku      @relation(fields: [skuId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+  user     User?    @relation(fields: [userId], references: [id])
+
+  @@index([skuId, locationId, createdAt])
+  @@index([createdAt])
+}
+
+model InboundReceipt {
+  id                       Int           @id @default(autoincrement())
+  receiptNumber            String        @unique @db.VarChar(64)
+  skuId                    Int
+  locationId               Int
+  quantity                 Int
+  status                   ReceiptStatus @default(PLANNED)
+  expectedArrivalTime      DateTime
+  originalExpectedArrivalTime DateTime
+  inTransitAt              DateTime?
+  receivedAt               DateTime?
+  canceledAt               DateTime?
+  cancelReason             String?       @db.VarChar(500)
+  version                  Int           @default(0)
+  createdById              Int?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  sku          Sku          @relation(fields: [skuId], references: [id])
+  location     Location     @relation(fields: [locationId], references: [id])
+  createdBy    User?        @relation(fields: [createdById], references: [id])
+  allocations  Allocation[]
+  exceptions   Exception[]
+
+  @@index([status, expectedArrivalTime])
+  @@index([skuId, status])
+  @@index([locationId])
+}
+
+// A reservation of supply for one order line, drawn from one source (on-hand at a location,
+// or an inbound receipt). Released allocations are kept for history (status=RELEASED).
+// `activeKey` is non-null only while ACTIVE, so the UNIQUE index forbids duplicate active
+// allocations for the same (line, source, location, receipt).
+model Allocation {
+  id            Int                    @id @default(autoincrement())
+  orderLineId   Int
+  skuId         Int
+  locationId    Int
+  sourceType    AllocationSource
+  receiptId     Int?
+  quantity      Int
+  availableDate DateTime               @db.Date
+  status        AllocationRecordStatus @default(ACTIVE)
+  activeKey     String?                @unique @db.VarChar(160)
+  releaseReason String?                @db.VarChar(255)
+  releasedAt    DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  orderLine OrderLine      @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  sku       Sku            @relation(fields: [skuId], references: [id])
+  location  Location       @relation(fields: [locationId], references: [id])
+  receipt   InboundReceipt? @relation(fields: [receiptId], references: [id])
+
+  @@index([orderLineId, status])
+  @@index([skuId, status])
+  @@index([receiptId, status])
+}
+
+model Shipment {
+  id             Int      @id @default(autoincrement())
+  shipmentNumber String   @unique @db.VarChar(40)
+  orderId        Int
+  locationId     Int
+  shippedAt      DateTime
+  isSplit        Boolean  @default(false)
+  reason         String?  @db.VarChar(500)
+  createdById    Int?
+  createdAt      DateTime @default(now())
+
+  order     Order          @relation(fields: [orderId], references: [id])
+  location  Location       @relation(fields: [locationId], references: [id])
+  createdBy User?          @relation(fields: [createdById], references: [id])
+  lines     ShipmentLine[]
+
+  @@index([orderId])
+  @@index([shippedAt])
+}
+
+model ShipmentLine {
+  id              Int      @id @default(autoincrement())
+  shipmentId      Int
+  orderLineId     Int
+  skuId           Int
+  quantity        Int
+  promisedDate    DateTime? @db.Date
+  onTime          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id])
+
+  @@index([orderLineId])
+  @@index([createdAt])
+}
+
+model Exception {
+  id                 Int             @id @default(autoincrement())
+  exceptionNumber    String          @unique @db.VarChar(20)
+  type               ExceptionType
+  severity           Severity
+  // Sort ranks: severity CRITICAL=0..LOW=3, priority HIGH=0..LOW=2 (enum strings do not sort by risk)
+  severityRank       Int             @default(3)
+  priorityRank       Int             @default(1)
+  status             ExceptionStatus @default(OPEN)
+  orderId            Int
+  orderLineId        Int?
+  skuId              Int
+  locationId         Int?
+  receiptId          Int?
+  priority           Priority
+  affectedQty        Int             @default(0)
+  currentPromisedDate DateTime?      @db.Date
+  requestedShipDate  DateTime?       @db.Date
+  recommendedAction  String          @db.Text
+  details            Json?
+  // Non-null only while OPEN. UNIQUE => at most one open exception per (line, type, reference).
+  openKey            String?         @unique @db.VarChar(160)
+  resolvedAt         DateTime?
+  resolvedById       Int?
+  resolutionNote     String?         @db.VarChar(500)
+  resolutionKind     String?         @db.VarChar(40)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  order     Order       @relation(fields: [orderId], references: [id])
+  orderLine OrderLine?  @relation(fields: [orderLineId], references: [id])
+  sku       Sku         @relation(fields: [skuId], references: [id])
+  location  Location?   @relation(fields: [locationId], references: [id])
+  receipt   InboundReceipt? @relation(fields: [receiptId], references: [id])
+  resolvedBy User?      @relation("ExceptionResolver", fields: [resolvedById], references: [id])
+
+  @@index([status, severityRank])
+  @@index([type, status])
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+// Immutable audit trail. No UPDATE/DELETE allowed (MySQL triggers).
+model AuditLog {
+  id            BigInt   @id @default(autoincrement())
+  eventId       String   @unique @db.Char(36)
+  userId        Int?
+  entityType    String   @db.VarChar(40)
+  entityId      String   @db.VarChar(64)
+  action        String   @db.VarChar(64)
+  previousValue Json?
+  newValue      Json?
+  reason        String?  @db.VarChar(500)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Every LLM interaction: input, structured output, provider/model, decision history.
+model AIInteraction {
+  id              Int                 @id @default(autoincrement())
+  interactionId   String              @unique @db.Char(36)
+  type            AIInteractionType
+  status          AIInteractionStatus @default(GENERATED)
+  inputText       String              @db.Text
+  context         Json?
+  output          Json
+  provider        String              @db.VarChar(40)
+  model           String              @db.VarChar(120)
+  requestedById   Int?
+  decidedById     Int?
+  decisionReason  String?             @db.VarChar(500)
+  decidedAt       DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  requestedBy User? @relation("AIRequester", fields: [requestedById], references: [id])
+  decidedBy   User? @relation("AIDecider", fields: [decidedById], references: [id])
+  communications CustomerCommunication[]
+
+  @@index([type, createdAt])
+  @@index([status])
+}
+
+model CustomerCommunication {
+  id              Int                 @id @default(autoincrement())
+  orderId         Int
+  channel         String              @default("EMAIL") @db.VarChar(20)
+  subject         String              @db.VarChar(255)
+  body            String              @db.Text
+  status          CommunicationStatus @default(SENT)
+  aiInteractionId Int?
+  sentAt          DateTime?
+  createdById     Int?
+  createdAt       DateTime            @default(now())
+
+  order         Order          @relation(fields: [orderId], references: [id])
+  aiInteraction AIInteraction? @relation(fields: [aiInteractionId], references: [id])
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+
+  @@index([orderId, createdAt])
+}
+
+model AppSetting {
+  id            Int      @id @default(1)
+  companyName   String   @db.VarChar(255)
+  timezone      String   @db.VarChar(64)
+  defaultSafetyStock Int @default(10)
+  updatedAt     DateTime @updatedAt
+}
+
+model Sequence {
+  name  String @id @db.VarChar(40)
+  value Int    @default(0)
+}

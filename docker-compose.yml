@@ -1,0 +1,58 @@
+# Supply Chain Order Promising & Inventory Control Tower
+#   docker compose up --build
+#   UI:       http://localhost:8080
+#   API:      http://localhost:8080/api/v1   (Swagger: http://localhost:8080/api/docs)
+name: sct
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: sct
+      MYSQL_USER: sct
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sct_password}
+    command: ["--default-authentication-plugin=caching_sha2_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root_password}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: mysql://sct:${MYSQL_PASSWORD:-sct_password}@db:3306/sct
+      CORS_ORIGIN: http://localhost:8080
+      SEED_ON_START: ${SEED_ON_START:-true}
+      # AI provider: heuristic (default, no key needed) | openai | anthropic
+      LLM_PROVIDER: ${LLM_PROVIDER:-heuristic}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+    expose:
+      - "3000"
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  db-data:

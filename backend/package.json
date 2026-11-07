@@ -1,0 +1,55 @@
+{
+  "name": "sct-backend",
+  "version": "1.0.0",
+  "description": "Supply Chain Order Promising & Inventory Control Tower - API",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "seed": "ts-node --transpile-only prisma/seed.ts",
+    "test": "jest",
+    "test:unit": "jest --testPathIgnorePatterns test/integration",
+    "test:integration": "jest --config ./test/jest-integration.json --runInBand",
+    "lint": "tsc --noEmit",
+    "start:prod": "node dist/main.js",
+    "db:migrate": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/platform-express": "^10.4.15",
+    "@nestjs/swagger": "^7.4.2",
+    "@prisma/client": "5.22.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "prisma": "5.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.8",
+    "@nestjs/schematics": "^10.2.3",
+    "@nestjs/testing": "^10.4.15",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.2",
+    "jest": "^29.7.0",
+    "source-map-support": "^0.4.18",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5"
+  },
+  "prisma": {
+    "seed": "ts-node --transpile-only prisma/seed.ts"
+  }
+}

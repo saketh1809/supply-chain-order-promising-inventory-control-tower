@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens. Values are HSL channels so Tailwind can apply alpha. */
+:root {
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --muted: 215 25% 96%;
+  --muted-foreground: 215 16% 42%;
+  --border: 214 20% 90%;
+  --input: 214 20% 88%;
+  --ring: 221 83% 53%;
+  --primary: 222 47% 16%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 215 28% 94%;
+  --accent-foreground: 222 47% 11%;
+  --success: 158 64% 36%;
+  --warning: 38 92% 45%;
+  --danger: 355 72% 50%;
+  --info: 217 85% 55%;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'],
+:root.dark {
+  --background: 222 40% 7%;
+  --foreground: 210 30% 95%;
+  --card: 222 36% 10%;
+  --card-foreground: 210 30% 95%;
+  --muted: 222 30% 14%;
+  --muted-foreground: 215 18% 65%;
+  --border: 222 25% 19%;
+  --input: 222 25% 22%;
+  --ring: 217 91% 65%;
+  --primary: 210 40% 96%;
+  --primary-foreground: 222 47% 11%;
+  --accent: 222 28% 16%;
+  --accent-foreground: 210 30% 95%;
+  --success: 158 60% 50%;
+  --warning: 38 92% 58%;
+  --danger: 355 80% 62%;
+  --info: 217 90% 68%;
+  color-scheme: dark;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { min-height: 100%; }
+  body { @apply bg-background text-foreground font-sans; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; border-radius: 6px; }
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@layer components {
+  .table-cell-base { @apply px-3 py-2.5 align-middle text-sm; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
