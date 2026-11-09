@@ -39,7 +39,7 @@ export function errorCode(err: unknown): string | undefined {
 }
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: '/api/v1',
+  baseUrl: `${import.meta.env.VITE_API_BASE ?? ''}/api/v1`,
   prepareHeaders: (headers, { getState }) => {
     const actingUserId = (getState() as { ui: { actingUserId: number } }).ui.actingUserId;
     headers.set('x-user-id', String(actingUserId));
