@@ -2,6 +2,7 @@
 # ---- deps: full install, Prisma client generated for linux ----
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY prisma ./prisma
