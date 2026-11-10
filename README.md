@@ -187,33 +187,6 @@ How the demo is put together, if you want to host your own copy:
 | Backend | Render **Web Service** (Docker) | Root directory `backend`, Dockerfile `./Dockerfile` |
 | Database | An external MySQL 8 (Render has no MySQL). The demo uses Aiven. | Connection string goes in `DATABASE_URL` |
 
-Backend environment variables on Render:
-
-```
-NODE_ENV=production
-DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DBNAME
-CORS_ORIGIN=https://YOUR-FRONTEND.onrender.com
-SEED_ON_START=false
-LLM_PROVIDER=heuristic
-```
-
-Do not set `PORT`; Render provides it. If the password in `DATABASE_URL` has special characters, encode them (`@` becomes `%40`, `:` becomes `%3A`, `/` becomes `%2F`, `#` becomes `%23`). Some hosts require an SSL option such as `?sslaccept=accept_invalid_certs` at the end.
-
-The backend applies the database migrations on every start. To load the demo data once, run the seed from your computer against the hosted database:
-
-```
-cd backend
-set DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DBNAME      (PowerShell: $env:DATABASE_URL="...")
-npm run seed
-```
-
-The frontend calls `/api/v1/...` on its own address, so the static site needs two **Rewrite** rules, in this order:
-
-| Source | Destination |
-|---|---|
-| `/api/*` | `https://YOUR-BACKEND.onrender.com/api/*` |
-| `/*` | `/index.html` |
-
 ### Option B: run it on your own computer
 
 You need **Node.js 20 or 22** and **MySQL 8.0**. MariaDB is not the same thing. This project was built and tested on MySQL 8 only.
@@ -271,18 +244,6 @@ Open http://localhost:5173. You are acting as **Dana Ortiz (planner)** by defaul
 | `mysql` is not recognized (Windows) | Use the full path to `mysql.exe`, or run the SQL in MySQL Workbench. |
 
 **Docker (optional).** `docker compose up --build` starts MySQL, the backend and the frontend, and the app opens at http://localhost:8080. The compose file is checked, but the images were not built during development, so treat this route as untested.
-
-### Running the tests
-
-```
-cd backend
-npm test                                  # unit tests (34)
-npm run test:integration                  # integration tests (42), needs MySQL and TEST_DATABASE_URL
-```
-
-Set `TEST_DATABASE_URL` to the `sct_test` database. The integration tests empty that database.
-
-There are also two scripts at the project root: `scripts/demo-scenarios.mjs` runs the five demo scenarios against a running API and checks the results, and `scripts/browser-flows.mjs` clicks through the main screens in a headless browser.
 
 ---
 
