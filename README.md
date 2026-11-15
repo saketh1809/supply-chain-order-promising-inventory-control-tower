@@ -6,6 +6,7 @@ A web application for supply-chain planners and customer-support teams. It tells
 The demo runs on a free plan, so it goes to sleep when nobody uses it. The first page can take about a minute to show data. Wait and refresh once if you see "The API is not responding".
 
 **Contents**
+- [A quick tour with screenshots](#a-quick-tour-with-screenshots)
 1. [What the application does](#1-what-the-application-does)
 2. [Setup](#2-setup)
 3. [Architecture overview](#3-architecture-overview)
@@ -13,6 +14,61 @@ The demo runs on a free plan, so it goes to sleep when nobody uses it. The first
 5. [Allocation, ATP and promise rules](#5-allocation-atp-and-promise-rules)
 6. [AI features: prompts, safety and audit](#6-ai-features-prompts-safety-and-audit)
 7. [Trade-offs and next steps](#7-trade-offs-and-next-steps)
+8. [Authentication (sign-in)](#8-authentication-sign-in)
+
+---
+
+## A quick tour with screenshots
+
+### 1. Sign in
+![Sign in page](docs/screenshots/01-login.png)
+
+Every page needs a signed-in user. Sign-in uses an email and a password. See [section 8](#8-authentication-sign-in) for how it works and the demo accounts.
+
+### 2. Overview
+![Overview dashboard](docs/screenshots/02-overview.png)
+
+The home page. The six cards give a quick health check: active orders, orders at risk, stock you can still promise, backordered units, receipts on the way, and the share of orders promised on time. The charts below show shipments over the last 14 days and stock per warehouse.
+
+### 3. Orders
+![Orders list](docs/screenshots/03-orders.png)
+
+All customer orders in one table. Search by order number or customer, filter by status, priority or risk, and sort by promised date or risk. Each row shows how much is allocated, how much is backordered and the promised ship date.
+
+### 4. Order detail
+![Order detail](docs/screenshots/04-order-detail.png)
+
+Everything about one order. Each line shows requested, allocated and backordered units and where it ships from. This order is partly short, so the promised date (Dec 10) is later than the requested date (Nov 20). The timeline lower on the page explains why. The buttons at the top are the planner actions: edit, ship, split shipment, customer update and cancel.
+
+### 5. Exceptions queue
+![Exceptions queue with AI explanation](docs/screenshots/05-exceptions.png)
+
+A to-do list of orders that need attention: late promises, backorders, delayed or canceled receipts, and high priority orders with too little stock. Clicking one opens a panel with the planner actions (reassign location, override promise, split shipment) and an **AI explanation** with *What happened*, *Current plan* and *Next best actions*. The AI only advises. Nothing changes until a person acts.
+
+### 6. Supply and receipts
+![Inbound receipts](docs/screenshots/06-supply.png)
+
+Purchase orders on their way (PO-22, PO-24 and so on). You can mark one in transit, receive it or cancel it. Receiving adds the stock once, even if you click twice. Every change recalculates the affected orders.
+
+### 7. Inventory
+![Inventory by warehouse](docs/screenshots/07-inventory.png)
+
+Stock for each product in each warehouse: on hand, allocated to orders, and available to promise. Use **Adjust inventory** to correct a count. It needs a reason, shows a preview first, and is written to the audit log.
+
+### 8. AI assistant
+![AI planner note](docs/screenshots/08-ai-assistant.png)
+
+Paste a note from a call or email. The assistant proposes changes (for example "delay PO-22 by 5 days" and "move order A104 to NJ") for each, checks them against the business rules and shows the effect on the plan. You approve or reject. Nothing is saved before you approve.
+
+### 9. Activity and audit log
+![Audit log](docs/screenshots/09-audit-log.png)
+
+A permanent record of who did what and when, with the before and after values and the reason. Sign-ins, sign-outs and password changes are recorded here as well. The database does not allow these rows to be edited or deleted.
+
+### 10. User menu
+![User menu with change password and sign out](docs/screenshots/10-user-menu.png)
+
+The menu at the bottom left shows who is signed in, and has **Change password** and **Sign out**.
 
 ---
 
@@ -222,11 +278,17 @@ npm run set-passwords
 
 Then sign in with `dana.ortiz@northwind.example` (planner), `marcus.lee@northwind.example` (support) or `priya.shah@northwind.example` (admin) and that password.
 
-The frontend calls `/api/v1/...` on its own address, so the static site needs two **Rewrite** rules, in this order:
+**Connecting the frontend to the backend.** The browser calls the backend directly, so two settings are needed:
+
+| Where | Setting | Value |
+|---|---|---|
+| Static Site, Environment | `VITE_API_BASE` | The backend address, for example `https://YOUR-BACKEND.onrender.com` (no trailing slash, no `/api`). It is read when the site is built, so redeploy the Static Site after changing it. |
+| Backend, Environment | `CORS_ORIGIN` | The frontend address, for example `https://YOUR-FRONTEND.onrender.com` (no trailing slash). |
+
+The Static Site also needs one **Rewrite** rule so that refreshing a page works:
 
 | Source | Destination |
 |---|---|
-| `/api/*` | `https://YOUR-BACKEND.onrender.com/api/*` |
 | `/*` | `/index.html` |
 
 ### Option B: run it on your own computer
@@ -351,10 +413,9 @@ frontend/src
 3. **Every change happens in one database transaction**, together with its audit record. If any part fails, nothing is saved.
 4. **The calculation engine has no database inside it.** It receives plain data and returns a result. That makes it easy to test, and it lets the app run "what if" previews with the exact same code as the real thing.
 
-**Who is the user?** Users sign in with e-mail and password and get two JSON Web Tokens:
+**Who is the user?** People sign in with an email and password and get a JSON Web Token. The server reads the user from the token, so every audit entry names a real person. The details are in [section 8](#8-authentication-sign-in).
 
-| Token | Lifetime | Where it lives | Purpose |
-|---|---|---|---|
+---|---|---|---|
 | **Access token** | 15 minutes | Browser memory only | Sent as `Authorization: Bearer ...` on every request. The server reads the user id from it, so audit entries cannot be faked. |
 | **Refresh token** | 7 days | Browser local storage; only its SHA-256 hash is stored in MySQL (`RefreshToken` table) | Trades itself for a new access token. |
 
@@ -549,9 +610,7 @@ One known limit: approving several actions applies them one after another, each 
 
 ---
 
-## 7. Trade-offs and next steps
-
-### Trade-offs
+## 7. Trade-offs 
 
 - **Recalculate a whole SKU each time, save only the differences.** This is easy to reason about and always consistent with the data. The cost is that work grows with the number of open lines for a SKU, which is fine for hundreds of lines per SKU, not for millions.
 - **A preferred warehouse is used first, even when another warehouse could ship sooner.** This follows the requirement as written ("allocate from the preferred location if specified"). It can make a promise later than necessary. The Reassign preview exists to show that difference. Changing it to "prefer, but only if not later" is a small code change.
@@ -562,27 +621,90 @@ One known limit: approving several actions applies them one after another, each 
 - **Rule-based AI first.** It works offline, gives the same answer each time and is easy to test. It does not understand free-form questions.
 - **Inventory list paging happens in memory.** The SKU-by-warehouse grid is small, so it is computed in full and then paged. Orders, receipts, exceptions, SKUs, locations and the audit log are paged in SQL.
 - **"Compared with last week" on the Overview** is rebuilt from timestamps. Where no history exists (orders at risk, backordered units), the card shows no comparison rather than a made-up one.
-- **The refresh token is in local storage.** That is simple and works across the Render rewrite, but a script injected into the page (XSS) could read it. An `HttpOnly` cookie is safer; it is listed in the next steps.
+- **The refresh token is in local storage.** That is simple and works on any host, but a script injected into the page (XSS) could read it. An `HttpOnly` cookie is safer.
 - **Free hosting limits.** The demo sleeps when idle and uses a small free database, so it is slow to start and not meant for real use.
 
-### Not done
+---
 
-- Permissions by role (the role is already in the token), user management screens, password reset by e-mail, and moving the refresh token into an `HttpOnly` cookie.
-- More than one company (the "workspace" shown is a single one).
-- Sending real emails.
-- A test of the language-model path against a real provider.
-- Building and running the Docker images (the files are written and validated, but were never built).
-- Automated tests for the frontend (the screens were checked with a browser script).
+## 8. Authentication (sign-in)
 
-### Next steps if there were more time
+![Sign in page](docs/screenshots/01-login.png)
 
-1. **Sign-in and roles** (planner, support, admin), with permissions per action, for example only planners may override a promise.
-2. **Make AI approvals all-or-nothing** in a single transaction.
-3. **Test with a real language model**, with a set of sample notes and the proposals they should produce.
-4. **Support more than one company** by adding a company id to every table and key.
-5. **Faster recalculation for large catalogs**, such as a background queue and recalculating only what changed.
-6. **Supplier connections** (EDI or API feeds) so delivery changes arrive automatically instead of being typed in.
-7. **Customer emails** with templates.
-8. **Demand forecasting** for shortage insights, instead of looking only at open orders.
-9. **Monitoring**: timing of recalculations, error alerts, request tracing.
-10. **Frontend tests**, and a "late vs requested date" label that spells out what it compares.
+Nobody can see or change data without signing in. The app uses **JSON Web Tokens (JWT)**: a short-lived *access token* proves who you are on every request, and a long-lived *refresh token* gets you a new access token when the old one runs out, so you do not have to sign in again every 15 minutes.
+
+### The demo accounts
+
+| Email | Role |
+|---|---|
+| `dana.ortiz@northwind.example` | Planner |
+| `marcus.lee@northwind.example` | Support |
+| `priya.shah@northwind.example` | Admin |
+
+On your own computer the password is `ChangeMe123!` (it comes from the seed). On a hosted copy, the password is "password" . Roles are stored, but every signed-in user can currently use every screen. 
+
+### How it works, step by step
+
+1. You type your email and password. The browser sends them to `POST /api/v1/auth/login`.
+2. The server finds the user and compares the password with the **bcrypt hash** stored in MySQL. The password itself is never stored.
+3. If it matches, the server returns two tokens:
+
+| Token | Lasts | Where it is kept | What it is for |
+|---|---|---|---|
+| **Access token** | 15 minutes | Browser memory only | Sent as `Authorization: Bearer <token>` on every request. The server reads your user id from it. |
+| **Refresh token** | 7 days | Browser local storage. MySQL keeps only a SHA-256 hash of it (table `RefreshToken`). | Exchanged for a new access token and a new refresh token. |
+
+4. When the access token expires, the server answers 401. The browser quietly calls `POST /auth/refresh`, receives a new pair and repeats the request. You notice nothing.
+5. When you press **Sign out**, the refresh token is revoked on the server and removed from the browser.
+
+### What keeps it safe
+
+- **Hashed passwords.** bcrypt with cost 12. A leaked database does not reveal passwords.
+- **Refresh tokens rotate.** Each one works once. If an already-used token comes back (a sign it was copied), the whole session is revoked. A repeat within 10 seconds is allowed, because two browser tabs can refresh at the same moment.
+- **Refresh tokens are stored hashed.** A leaked database cannot be used to sign in.
+- **Two different secrets.** Access and refresh tokens are signed with different keys, so a refresh token can never be used as an access token.
+- **Login limit.** At most 10 attempts per minute for the same address and email. An unknown email takes as long to reject as a wrong password, so attackers cannot find out which emails exist.
+- **Trustworthy audit log.** The user id comes from the verified token and not from anything the browser sends, so audit entries cannot be faked.
+- **Changing your password signs you out everywhere.** Use **Change password** in the user menu.
+- **Sign-in events are audited.** Login, logout, password change and detected token reuse are all written to the audit log.
+
+### The endpoints
+
+| Endpoint | Needs sign-in | What it does |
+|---|---|---|
+| `POST /api/v1/auth/login` | No | Checks email and password, returns the tokens |
+| `POST /api/v1/auth/refresh` | No (needs the refresh token) | Returns a new pair of tokens |
+| `POST /api/v1/auth/logout` | No (needs the refresh token) | Ends the session |
+| `GET /api/v1/auth/me` | Yes | Who am I |
+| `POST /api/v1/auth/change-password` | Yes | Changes the password and ends all sessions |
+| `GET /api/v1/health` | No | Is the server and database up (used by Docker and Render) |
+
+Every other endpoint needs a valid access token. In Swagger (`/api/docs`), call `auth/login`, click **Authorize** and paste the `accessToken`.
+
+### Settings
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `JWT_ACCESS_SECRET` | Key for access tokens. 32 or more random characters. **Required in production.** | none |
+| `JWT_REFRESH_SECRET` | Key for refresh tokens. A different random value. **Required in production.** | none |
+| `JWT_ACCESS_TTL` | Access token lifetime | `15m` |
+| `JWT_REFRESH_TTL` | Refresh token lifetime | `7d` |
+| `AUTH_RATE_LIMIT` | Login and refresh attempts per window | `10` |
+| `SEED_PASSWORD` | Password for the demo users | `ChangeMe123!` on a local database only. Required for a hosted one. |
+
+Create a secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`. Never commit secrets.
+
+### Setting or resetting passwords
+
+```
+cd backend
+set DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DBNAME      (PowerShell: $env:DATABASE_URL="...")
+set SEED_PASSWORD=a-long-unique-password                     (PowerShell: $env:SEED_PASSWORD="...")
+npm run set-passwords              # only users who have no password yet
+npm run set-passwords -- --all     # every user
+```
+
+### Known limits
+
+- The refresh token sits in the browser's local storage. A script injected into the page could read it. An `HttpOnly` cookie would be safer.
+- There is no sign-up page and no "forgot password" email. Users come from the seed or `set-passwords`.
+- Roles are in the token but not yet checked per action.
