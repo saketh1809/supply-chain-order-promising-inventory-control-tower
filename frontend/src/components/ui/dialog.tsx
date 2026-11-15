@@ -2,6 +2,7 @@ import { useEffect, useId, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { createPortal } from 'react-dom';
 
 interface DialogProps {
   open: boolean;
@@ -29,7 +30,8 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     };
   }, [open, onClose]);
 
-  return (
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" role="presentation">
@@ -63,6 +65,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
