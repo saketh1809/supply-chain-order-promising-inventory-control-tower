@@ -16,6 +16,8 @@ import type {
   TimelineEvent,
 } from '../lib/dto';
 
+import { API_URL } from '../lib/config';
+
 export interface Paged<T> {
   items: T[];
   meta: PageMeta;
@@ -44,7 +46,7 @@ export function errorCode(err: unknown): string | undefined {
 }
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: '/api/v1',
+    baseUrl: API_URL,
   prepareHeaders: (headers, { getState }) => {
     // The signed-in user is identified by the access token (JWT); the server reads the user id from it.
     const token = (getState() as { auth: { accessToken: string | null } }).auth.accessToken;

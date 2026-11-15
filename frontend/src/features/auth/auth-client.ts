@@ -1,7 +1,7 @@
 import type { AppDispatch } from '../../app/store';
 import { readRefreshToken, sessionEnded, sessionStarted, writeRefreshToken, type AuthUser } from './authSlice';
 
-const BASE = '/api/v1';
+import { API_URL as BASE } from '../../lib/config';
 
 interface TokenPair {
   accessToken: string;

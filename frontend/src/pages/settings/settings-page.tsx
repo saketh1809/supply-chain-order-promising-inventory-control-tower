@@ -13,6 +13,7 @@ import { Badge } from '../../components/ui/badge';
 import { Skeleton } from '../../components/ui/states';
 import { settingsSchema, type SettingsValues } from '../../lib/schemas';
 import { fmtNum, humanize } from '../../lib/utils';
+import { API_BASE } from '../../lib/config';
 
 export function SettingsPage() {
   const dispatch = useAppDispatch();
@@ -88,7 +89,7 @@ export function SettingsPage() {
         <Card className="xl:col-span-2">
           <CardHeader title={<span className="flex items-center gap-2"><Plug className="h-4 w-4" /> Integration & API</span>} description="The REST API is versioned under /api/v1 and documented with OpenAPI." />
           <CardBody className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-            <div className="rounded-xl border border-border p-4"><p className="font-medium">Interactive API docs</p><p className="mt-1 text-xs text-muted-foreground">Swagger UI with every endpoint, schema and response code.</p><a href="/api/docs" target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-info hover:underline">Open Swagger <ExternalLink className="h-3 w-3" /></a></div>
+            <div className="rounded-xl border border-border p-4"><p className="font-medium">Interactive API docs</p><p className="mt-1 text-xs text-muted-foreground">Swagger UI with every endpoint, schema and response code.</p><a href={`${API_BASE}/api/docs`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-info hover:underline">Open Swagger <ExternalLink className="h-3 w-3" /></a></div>
             <div className="rounded-xl border border-border p-4"><p className="font-medium">Signed-in identity</p><p className="mt-1 text-xs text-muted-foreground">Requests carry a JWT access token (<code className="font-mono">Authorization: Bearer</code>). Every audit entry is attributed to this user.</p><p className="mt-2 text-xs">{me ? `${me.name} · ${me.role.toLowerCase()}` : '—'}</p></div>
           </CardBody>
         </Card>
