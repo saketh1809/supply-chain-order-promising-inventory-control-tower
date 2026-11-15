@@ -9,9 +9,17 @@
  * Scenarios 2–5 change data; re-seed before running them again.
  */
 const BASE = process.env.API_BASE ?? 'http://localhost:3000/api/v1';
-const USER = process.env.ACTOR_ID ?? '1';
+const EMAIL = process.env.DEMO_EMAIL ?? 'dana.ortiz@northwind.example';
+const PASSWORD = process.env.SEED_PASSWORD ?? 'ChangeMe123!';
 
-const H = { 'content-type': 'application/json', 'x-user-id': USER };
+// Sign in once; every request then carries the access token.
+const H = { 'content-type': 'application/json' };
+{
+  const res = await fetch(`${BASE}/auth/login`, { method: 'POST', headers: H, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`Login failed (${res.status}): ${json?.error?.message ?? ''}`);
+  H.authorization = `Bearer ${json.data.accessToken}`;
+}
 async function call(method, path, body) {
   const res = await fetch(`${BASE}${path}`, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
   const json = await res.json().catch(() => ({}));

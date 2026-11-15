@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery, type BaseQueryFn, type FetchArgs, type FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
+import { refreshSession } from '../features/auth/auth-client';
 import type { ApiEnvelope, ApiErrorBody, Location, PageMeta, Sku } from '../lib/types';
 import type {
   AiInteraction,
@@ -25,6 +26,10 @@ export function errorMessage(err: unknown, fallback = 'Something went wrong. Ple
   if (!err || typeof err !== 'object') return fallback;
   const e = err as FetchBaseQueryError & { data?: unknown; message?: string };
   if ('status' in e && e.status === 'FETCH_ERROR') return 'The API is unreachable. Check that the backend is running.';
+  // The dev proxy answers 500/502/503/504 with no JSON body when the backend is down or has crashed.
+  if ('status' in e && [500, 502, 503, 504].includes(e.status as number) && !(e as { data?: { error?: unknown } }).data?.error) {
+    return 'The API is not responding. Make sure the backend is running and connected to MySQL (check the backend terminal for errors).';
+  }
   if ('data' in e && e.data && typeof e.data === 'object' && 'error' in (e.data as object)) {
     const body = e.data as ApiErrorBody;
     const issues = (body.error.details as { issues?: string[] } | null)?.issues;
@@ -39,18 +44,29 @@ export function errorCode(err: unknown): string | undefined {
 }
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: `${import.meta.env.VITE_API_BASE ?? ''}/api/v1`,
+  baseUrl: '/api/v1',
   prepareHeaders: (headers, { getState }) => {
-    const actingUserId = (getState() as { ui: { actingUserId: number } }).ui.actingUserId;
-    headers.set('x-user-id', String(actingUserId));
+    // The signed-in user is identified by the access token (JWT); the server reads the user id from it.
+    const token = (getState() as { auth: { accessToken: string | null } }).auth.accessToken;
+    if (token) headers.set('authorization', `Bearer ${token}`);
     headers.set('content-type', 'application/json');
     return headers;
   },
 });
 
+/** Sends the request; on 401 it refreshes the access token once (all callers share one refresh) and retries. */
+const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (args, api, extra) => {
+  let result = await rawBaseQuery(args, api, extra);
+  if (result.error?.status === 401) {
+    const refreshed = await refreshSession(api.dispatch as never);
+    if (refreshed) result = await rawBaseQuery(args, api, extra);
+  }
+  return result;
+};
+
 /** Unwraps the { success, data, meta } envelope so endpoints receive the payload directly. */
 const baseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (args, api, extra) => {
-  const result = await rawBaseQuery(args, api, extra);
+  const result = await baseQueryWithReauth(args, api, extra);
   if (result.error) return result;
   const body = result.data as ApiEnvelope<unknown>;
   if (body && typeof body === 'object' && 'meta' in body && body.meta) {

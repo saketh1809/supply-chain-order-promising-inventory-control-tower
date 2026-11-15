@@ -31,8 +31,8 @@ export class ApiError extends Error {
     return new ApiError(HttpStatus.UNPROCESSABLE_ENTITY, code, message, details);
   }
 
-  static unauthorized(message = 'Unknown or missing user. Send a valid x-user-id header.') {
-    return new ApiError(HttpStatus.UNAUTHORIZED, 'UNAUTHORIZED', message);
+  static unauthorized(message = 'Authentication required. Sign in again.', code = 'UNAUTHORIZED') {
+    return new ApiError(HttpStatus.UNAUTHORIZED, code, message);
   }
 }
 

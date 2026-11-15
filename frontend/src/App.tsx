@@ -2,6 +2,7 @@ import { lazy, useEffect } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { useAppSelector } from './app/hooks';
 import { AppShell } from './components/layout/app-shell';
+import { AuthGate } from './components/auth/auth-gate';
 
 const OverviewPage = lazy(() => import('./pages/overview/overview-page').then((m) => ({ default: m.OverviewPage })));
 const OrdersPage = lazy(() => import('./pages/orders/orders-page').then((m) => ({ default: m.OrdersPage })));
@@ -41,6 +42,7 @@ function useThemeSync() {
 export function App() {
   useThemeSync();
   return (
+    <AuthGate>
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
@@ -62,5 +64,6 @@ export function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
+    </AuthGate>
   );
 }

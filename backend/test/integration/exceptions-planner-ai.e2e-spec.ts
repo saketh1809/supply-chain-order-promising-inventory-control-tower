@@ -33,7 +33,7 @@ describe('Exceptions, planner actions and AI workflow (integration)', () => {
     expect(resolved.resolutionKind).toBe('MANUAL');
     expect(resolved.history.map((h: { action: string }) => h.action)).toEqual(expect.arrayContaining(['EXCEPTION_CREATED', 'EXCEPTION_RESOLVED']));
 
-    const again = await api.raw().post(`/api/v1/exceptions/${exc!.id}/resolve`).set('x-user-id', '1').send({ note: 'again' });
+    const again = await api.raw().post(`/api/v1/exceptions/${exc!.id}/resolve`).send({ note: 'again' });
     expect(again.status).toBe(409);
   });
 
@@ -58,7 +58,7 @@ describe('Exceptions, planner actions and AI workflow (integration)', () => {
 
   it('expedite rejects a date that is not earlier', async () => {
     const receipt = await fx.receipt('PO-23', 'SKU-PWR', 'NJ', 5, 4);
-    const res = await api.raw().post('/api/v1/planner/expedite-receipt').set('x-user-id', '1').send({ receiptId: receipt.id, newExpectedArrival: todayPlus(9), reason: 'should fail' });
+    const res = await api.raw().post('/api/v1/planner/expedite-receipt').send({ receiptId: receipt.id, newExpectedArrival: todayPlus(9), reason: 'should fail' });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('NOT_AN_EXPEDITE');
   });
@@ -80,7 +80,7 @@ describe('Exceptions, planner actions and AI workflow (integration)', () => {
   it('manual promise override requires a justification, keeps the calculated date, and is flagged', async () => {
     const order = await fx.order('A402', 'SKU-SSD', 3, { priority: 'HIGH', requestedDays: 1 });
     const lineId = order.lines[0].id;
-    const short = await api.raw().post('/api/v1/planner/override-promise').set('x-user-id', '1').send({ orderLineId: lineId, promisedDate: todayPlus(5), justification: 'ok' });
+    const short = await api.raw().post('/api/v1/planner/override-promise').send({ orderLineId: lineId, promisedDate: todayPlus(5), justification: 'ok' });
     expect(short.status).toBe(400);
 
     const res = await api.post('/planner/override-promise', { orderLineId: lineId, promisedDate: todayPlus(5), justification: 'Customer accepted a delayed date by phone' });
@@ -152,7 +152,7 @@ describe('Exceptions, planner actions and AI workflow (integration)', () => {
       await seedScenario();
       const proposal = await api.post('/ai/planner-note', { note: NOTE }, 201);
       await fx.stock('SKU-PWR', 'NJ', 5); // the world changed
-      const res = await api.raw().post(`/api/v1/ai/planner-note/${proposal.id}/approve`).set('x-user-id', '1').send({});
+      const res = await api.raw().post(`/api/v1/ai/planner-note/${proposal.id}/approve`).send({});
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('PROPOSAL_STALE');
       const row = await ctx.prisma.aIInteraction.findUniqueOrThrow({ where: { id: proposal.id } });
@@ -165,7 +165,7 @@ describe('Exceptions, planner actions and AI workflow (integration)', () => {
       const rejected = await api.post(`/ai/planner-note/${proposal.id}/reject`, { reason: 'Customer did not ask for a move' });
       expect(rejected.status).toBe('REJECTED');
       expect(rejected.decisionReason).toBe('Customer did not ask for a move');
-      const res = await api.raw().post(`/api/v1/ai/planner-note/${proposal.id}/approve`).set('x-user-id', '1').send({});
+      const res = await api.raw().post(`/api/v1/ai/planner-note/${proposal.id}/approve`).send({});
       expect(res.status).toBe(409);
     });
 

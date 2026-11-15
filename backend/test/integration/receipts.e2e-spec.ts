@@ -54,7 +54,7 @@ describe('Inbound receipts: idempotent receiving and cancellation (integration)'
   it('never double-counts under concurrent receive requests', async () => {
     const r = await fx.receipt('PO-3', 'SKU-A', 'NJ', 12, 1);
     const responses = await Promise.all(
-      Array.from({ length: 6 }, () => ctx.http.post(`/api/v1/receipts/${r.id}/receive`).set('x-user-id', '1').send({})),
+      Array.from({ length: 6 }, () => ctx.http.post(`/api/v1/receipts/${r.id}/receive`).send({})),
     );
     expect(responses.every((res) => res.status === 200 || res.status === 201)).toBe(true);
     const fresh = responses.filter((res) => res.body.data.idempotent === false);
@@ -102,7 +102,7 @@ describe('Inbound receipts: idempotent receiving and cancellation (integration)'
   it('refuses to cancel a receipt that has already been received', async () => {
     const r = await fx.receipt('PO-6', 'SKU-A', 'NJ', 5, 0);
     await api.post(`/receipts/${r.id}/receive`, {});
-    const res = await api.raw().post(`/api/v1/receipts/${r.id}/cancel`).set('x-user-id', '1').send({ reason: 'too late' });
+    const res = await api.raw().post(`/api/v1/receipts/${r.id}/cancel`).send({ reason: 'too late' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('RECEIPT_ALREADY_RECEIVED');
     expect(await onHand('SKU-A', 'NJ')).toBe(5);
@@ -133,7 +133,7 @@ describe('Inbound receipts: idempotent receiving and cancellation (integration)'
   it('requires a reason when the expected arrival changes', async () => {
     const r = await fx.receipt('PO-8', 'SKU-A', 'NJ', 6, 2);
     const later = new Date(Date.now() + 9 * 86_400_000).toISOString().slice(0, 10);
-    const res = await api.raw().patch(`/api/v1/receipts/${r.id}`).set('x-user-id', '1').send({ expectedArrivalTime: later });
+    const res = await api.raw().patch(`/api/v1/receipts/${r.id}`).send({ expectedArrivalTime: later });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('REASON_REQUIRED');
   });

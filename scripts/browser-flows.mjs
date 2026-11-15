@@ -18,6 +18,13 @@ const fail = (msg) => { throw new Error(msg); };
   // Diagnostic logging around the customer-update click is intentionally removed from the committed script.
   page.setDefaultTimeout(15000);
 
+  // 0. Sign in (the app requires authentication). Override with DEMO_EMAIL / SEED_PASSWORD.
+  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await page.fill('#email', process.env.DEMO_EMAIL ?? 'dana.ortiz@northwind.example');
+  await page.fill('#password', process.env.SEED_PASSWORD ?? 'ChangeMe123!');
+  await page.click('button[type=submit]');
+  await page.waitForSelector('#email', { state: 'detached' });
+
   // 1. New order: preview then create & confirm
   await page.goto(BASE + '/orders/new', { waitUntil: 'networkidle' });
   const orderNo = 'UI-' + Date.now().toString().slice(-6);
@@ -39,8 +46,8 @@ const fail = (msg) => { throw new Error(msg); };
   await page.waitForSelector(`text=${orderNo}`);
   log('created & confirmed order', orderNo, 'url', page.url());
   await page.waitForSelector('text=Fully allocated', { timeout: 15000 });
-  const statusText = await page.textContent('body');
-  if (!/Confirmed/.test(statusText)) fail('order not confirmed in UI');
+  // Wait for the detail page's own status badge (the preview page that is still unmounting also says "Fully allocated").
+  await page.waitForFunction(() => /Status\s*Confirmed/i.test(document.body.innerText), null, { timeout: 15000 }).catch(() => fail('order not confirmed in UI'));
 
   // 2. Customer update: generate, save as sent
   await page.click('button:has-text("Generate customer update")');

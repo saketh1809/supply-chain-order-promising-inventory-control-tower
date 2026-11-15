@@ -187,6 +187,48 @@ How the demo is put together, if you want to host your own copy:
 | Backend | Render **Web Service** (Docker) | Root directory `backend`, Dockerfile `./Dockerfile` |
 | Database | An external MySQL 8 (Render has no MySQL). The demo uses Aiven. | Connection string goes in `DATABASE_URL` |
 
+Backend environment variables on Render:
+
+```
+NODE_ENV=production
+DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DBNAME
+CORS_ORIGIN=https://YOUR-FRONTEND.onrender.com
+SEED_ON_START=false
+LLM_PROVIDER=heuristic
+JWT_ACCESS_SECRET=<random 48+ character string>
+JWT_REFRESH_SECRET=<a different random 48+ character string>
+```
+
+The two JWT secrets are required in production: the server refuses to start without them. Generate each one with `openssl rand -hex 48` (or any password generator). Never reuse the same value for both and never commit them. Optional: `JWT_ACCESS_TTL=15m`, `JWT_REFRESH_TTL=7d`.
+
+If you set a **Health Check Path** on the Render web service, use `/api/v1/health` (it needs no sign-in). `/api/v1/settings` now answers 401 without a token.
+
+Do not set `PORT`; Render provides it. If the password in `DATABASE_URL` has special characters, encode them (`@` becomes `%40`, `:` becomes `%3A`, `/` becomes `%2F`, `#` becomes `%23`). Some hosts require an SSL option such as `?sslaccept=accept_invalid_certs` at the end.
+
+The backend applies the database migrations on every start. To load the demo data once, run the seed from your computer against the hosted database:
+
+```
+cd backend
+set DATABASE_URL=mysql://USER:PASSWORD@HOST:PORT/DBNAME      (PowerShell: $env:DATABASE_URL="...")
+npm run seed
+```
+
+The seed also gives the three demo users their password (stored only as a bcrypt hash). On a hosted database you must choose it: set `SEED_PASSWORD` to a long, unique value before running the seed. On a database that was seeded before sign-in existed, the seed does nothing, so run this instead; it only fills in missing passwords and touches nothing else:
+
+```
+set SEED_PASSWORD=your-long-unique-password                  (PowerShell: $env:SEED_PASSWORD="...")
+npm run set-passwords
+```
+
+Then sign in with `dana.ortiz@northwind.example` (planner), `marcus.lee@northwind.example` (support) or `priya.shah@northwind.example` (admin) and that password.
+
+The frontend calls `/api/v1/...` on its own address, so the static site needs two **Rewrite** rules, in this order:
+
+| Source | Destination |
+|---|---|
+| `/api/*` | `https://YOUR-BACKEND.onrender.com/api/*` |
+| `/*` | `/index.html` |
+
 ### Option B: run it on your own computer
 
 You need **Node.js 20 or 22** and **MySQL 8.0**. MariaDB is not the same thing. This project was built and tested on MySQL 8 only.
@@ -216,6 +258,8 @@ npm run seed
 npm run start:dev
 ```
 
+Before starting, open `backend/.env` and fill `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (in development an insecure built-in value is used if they are empty, and the server warns nothing, so do set them). Local demo users sign in with the password `ChangeMe123!` unless you set `SEED_PASSWORD` before seeding.
+
 In `backend/.env`, check `DATABASE_URL`. If MySQL listens on a different port (for example 3307 because something else uses 3306), change it, and use `127.0.0.1` instead of `localhost`:
 
 ```
@@ -240,10 +284,24 @@ Open http://localhost:5173. You are acting as **Dana Ortiz (planner)** by defaul
 |---|---|
 | `P1000 Authentication failed` | The user in `DATABASE_URL` does not exist in MySQL, or the password is wrong. |
 | Pages say "The API is not responding" | The backend is not running or crashed. Look at the backend terminal. |
-| Pages are empty or the API says "Unknown or missing user" | The seed has not run. Run `npm run seed`. |
+| The login page says "Invalid email or password" | The seed has not run, or the users have no password yet. Run `npm run seed` (empty database) or `npm run set-passwords` (existing data). |
+| The server stops with "JWT_ACCESS_SECRET must be set" | Set both JWT secrets in the environment (see above). Required when `NODE_ENV=production`. |
+| "Too many attempts" on sign-in | The login limit is 10 tries per minute for each address and e-mail. Wait a minute. |
 | `mysql` is not recognized (Windows) | Use the full path to `mysql.exe`, or run the SQL in MySQL Workbench. |
 
 **Docker (optional).** `docker compose up --build` starts MySQL, the backend and the frontend, and the app opens at http://localhost:8080. The compose file is checked, but the images were not built during development, so treat this route as untested.
+
+### Running the tests
+
+```
+cd backend
+npm test                                  # unit tests (34)
+npm run test:integration                  # integration tests (58), needs MySQL and TEST_DATABASE_URL
+```
+
+Set `TEST_DATABASE_URL` to the `sct_test` database. The integration tests empty that database.
+
+There are also two scripts at the project root: `scripts/demo-scenarios.mjs` runs the five demo scenarios against a running API and checks the results, and `scripts/browser-flows.mjs` clicks through the main screens in a headless browser.
 
 ---
 
@@ -293,7 +351,20 @@ frontend/src
 3. **Every change happens in one database transaction**, together with its audit record. If any part fails, nothing is saved.
 4. **The calculation engine has no database inside it.** It receives plain data and returns a result. That makes it easy to test, and it lets the app run "what if" previews with the exact same code as the real thing.
 
-**Who is the user?** There is no sign-in. The browser sends an `x-user-id` header and the API checks that this user exists, so every audit entry names a person. This is fine for a demo and **not safe for production**.
+**Who is the user?** Users sign in with e-mail and password and get two JSON Web Tokens:
+
+| Token | Lifetime | Where it lives | Purpose |
+|---|---|---|---|
+| **Access token** | 15 minutes | Browser memory only | Sent as `Authorization: Bearer ...` on every request. The server reads the user id from it, so audit entries cannot be faked. |
+| **Refresh token** | 7 days | Browser local storage; only its SHA-256 hash is stored in MySQL (`RefreshToken` table) | Trades itself for a new access token. |
+
+- Passwords are stored as **bcrypt** hashes (cost 12) in `User.passwordHash`. The password itself is never stored or logged.
+- **Refresh tokens rotate.** Every refresh returns a new refresh token and revokes the old one. If an already-used token comes back (a sign of theft), the whole session is revoked. A repeat within 10 seconds is tolerated, because two browser tabs can refresh at the same moment.
+- The browser waits for **one** refresh when several requests fail together, then repeats them. Signing out in one tab signs out all tabs.
+- Login and refresh are rate limited (10 per minute per address and e-mail), and an unknown e-mail takes as long to reject as a wrong password.
+- Changing the password revokes every session. Login, logout, password changes and detected token reuse are written to the audit log.
+- Endpoints: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password`. Everything else needs a valid access token. `GET /health` is public.
+- Roles (planner, support, admin) are in the token but **not yet enforced** per endpoint.
 
 ---
 
@@ -491,13 +562,27 @@ One known limit: approving several actions applies them one after another, each 
 - **Rule-based AI first.** It works offline, gives the same answer each time and is easy to test. It does not understand free-form questions.
 - **Inventory list paging happens in memory.** The SKU-by-warehouse grid is small, so it is computed in full and then paged. Orders, receipts, exceptions, SKUs, locations and the audit log are paged in SQL.
 - **"Compared with last week" on the Overview** is rebuilt from timestamps. Where no history exists (orders at risk, backordered units), the card shows no comparison rather than a made-up one.
-- **No real sign-in.** A header names the acting user. Fine for a demo, not for production.
+- **The refresh token is in local storage.** That is simple and works across the Render rewrite, but a script injected into the page (XSS) could read it. An `HttpOnly` cookie is safer; it is listed in the next steps.
 - **Free hosting limits.** The demo sleeps when idle and uses a small free database, so it is slow to start and not meant for real use.
+
+### Not done
+
+- Permissions by role (the role is already in the token), user management screens, password reset by e-mail, and moving the refresh token into an `HttpOnly` cookie.
+- More than one company (the "workspace" shown is a single one).
+- Sending real emails.
+- A test of the language-model path against a real provider.
+- Building and running the Docker images (the files are written and validated, but were never built).
+- Automated tests for the frontend (the screens were checked with a browser script).
 
 ### Next steps if there were more time
 
 1. **Sign-in and roles** (planner, support, admin), with permissions per action, for example only planners may override a promise.
-2. **Test with a real language model**, with a set of sample notes and the proposals they should produce.
-3. **Supplier connections** (EDI or API feeds) so delivery changes arrive automatically instead of being typed in.
-4. **Demand forecasting** for shortage insights, instead of looking only at open orders.
-
+2. **Make AI approvals all-or-nothing** in a single transaction.
+3. **Test with a real language model**, with a set of sample notes and the proposals they should produce.
+4. **Support more than one company** by adding a company id to every table and key.
+5. **Faster recalculation for large catalogs**, such as a background queue and recalculating only what changed.
+6. **Supplier connections** (EDI or API feeds) so delivery changes arrive automatically instead of being typed in.
+7. **Customer emails** with templates.
+8. **Demand forecasting** for shortage insights, instead of looking only at open orders.
+9. **Monitoring**: timing of recalculations, error alerts, request tracing.
+10. **Frontend tests**, and a "late vs requested date" label that spells out what it compares.

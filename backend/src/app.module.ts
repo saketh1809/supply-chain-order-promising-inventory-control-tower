@@ -1,9 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import configuration from './common/config/configuration';
 import { CommonModule } from './common/common.module';
-import { ActorGuard } from './common/actor/actor.guard';
+import { AuthModule } from './auth/auth.module';
 import { ApiExceptionFilter } from './common/api/api-exception.filter';
 import { RequestLoggingInterceptor, ResponseEnvelopeInterceptor } from './common/api/api.interceptors';
 import { AllocationModule } from './allocation/allocation.module';
@@ -24,6 +24,7 @@ import { AuditModule } from './audit/audit.module';
     ConfigModule.forRoot({ isGlobal: true, load: [configuration], envFilePath: ['.env'] }),
     CommonModule,
     AuditModule,
+    AuthModule,
     ExceptionsModule,
     AllocationModule,
     SkusModule,
@@ -37,7 +38,6 @@ import { AuditModule } from './audit/audit.module';
     SettingsModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ActorGuard },
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },

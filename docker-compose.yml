@@ -35,6 +35,12 @@ services:
       PORT: 3000
       DATABASE_URL: mysql://sct:${MYSQL_PASSWORD:-sct_password}@db:3306/sct
       CORS_ORIGIN: http://localhost:8080
+      # Authentication. Put real random values in .env (see .env.example); compose refuses to start without them.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in .env (openssl rand -hex 48)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET in .env (openssl rand -hex 48)}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      SEED_PASSWORD: ${SEED_PASSWORD:-ChangeMe123!}
       SEED_ON_START: ${SEED_ON_START:-true}
       # AI provider: heuristic (default, no key needed) | openai | anthropic
       LLM_PROVIDER: ${LLM_PROVIDER:-heuristic}

@@ -82,7 +82,6 @@ describe('Orders and allocation (integration)', () => {
     const requests = Array.from({ length: 8 }, (_, i) =>
       ctx.http
         .post('/api/v1/orders')
-        .set('x-user-id', '1')
         .send({ orderNumber: `RACE-${i}`, customerName: 'Race Customer', priority: 'MED', confirm: true, lines: [{ skuId: fx.skus['SKU-A'], quantity: 1 }] }),
     );
     const responses = await Promise.all(requests);
@@ -119,7 +118,7 @@ describe('Orders and allocation (integration)', () => {
     await fx.stock('SKU-A', 'NJ', 20);
     const order = await fx.order('A302', 'SKU-A', 5);
     await api.patch(`/orders/${order.id}`, { version: order.version, priority: 'HIGH' });
-    const res = await api.raw().patch(`/api/v1/orders/${order.id}`).set('x-user-id', '1').send({ version: order.version, priority: 'LOW' });
+    const res = await api.raw().patch(`/api/v1/orders/${order.id}`).send({ version: order.version, priority: 'LOW' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('VERSION_CONFLICT');
   });
@@ -144,7 +143,7 @@ describe('Orders and allocation (integration)', () => {
     await fx.stock('SKU-A', 'NJ', 10);
     const order = await fx.order('A312', 'SKU-A', 6);
     await api.post(`/orders/${order.id}/ship`, { lines: [{ orderLineId: order.lines[0].id, quantity: 2 }] });
-    const res = await api.raw().post(`/api/v1/orders/${order.id}/cancel`).set('x-user-id', '1').send({ reason: 'changed mind' });
+    const res = await api.raw().post(`/api/v1/orders/${order.id}/cancel`).send({ reason: 'changed mind' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('ORDER_PARTIALLY_SHIPPED');
   });
@@ -167,7 +166,7 @@ describe('Orders and allocation (integration)', () => {
   it('refuses to ship units that are only allocated from inbound stock that has not arrived', async () => {
     await fx.receipt('PO-50', 'SKU-A', 'NJ', 5, 4);
     const order = await fx.order('A314', 'SKU-A', 5);
-    const res = await api.raw().post(`/api/v1/orders/${order.id}/ship`).set('x-user-id', '1').send({ lines: [{ orderLineId: order.lines[0].id, quantity: 5 }] });
+    const res = await api.raw().post(`/api/v1/orders/${order.id}/ship`).send({ lines: [{ orderLineId: order.lines[0].id, quantity: 5 }] });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('SHIP_QTY_NOT_AVAILABLE');
   });
@@ -187,11 +186,11 @@ describe('Orders and allocation (integration)', () => {
   it('rejects duplicate order numbers and unknown SKUs with clear codes', async () => {
     await fx.stock('SKU-A', 'NJ', 3);
     await fx.order('A330', 'SKU-A', 1);
-    const dup = await api.raw().post('/api/v1/orders').set('x-user-id', '1').send({ orderNumber: 'A330', customerName: 'X Customer', priority: 'LOW', lines: [{ skuId: fx.skus['SKU-A'], quantity: 1 }] });
+    const dup = await api.raw().post('/api/v1/orders').send({ orderNumber: 'A330', customerName: 'X Customer', priority: 'LOW', lines: [{ skuId: fx.skus['SKU-A'], quantity: 1 }] });
     expect(dup.status).toBe(409);
     expect(dup.body.error.code).toBe('ORDER_NUMBER_EXISTS');
 
-    const unknown = await api.raw().post('/api/v1/orders').set('x-user-id', '1').send({ orderNumber: 'A331', customerName: 'X Customer', priority: 'LOW', lines: [{ skuId: 999999, quantity: 1 }] });
+    const unknown = await api.raw().post('/api/v1/orders').send({ orderNumber: 'A331', customerName: 'X Customer', priority: 'LOW', lines: [{ skuId: 999999, quantity: 1 }] });
     expect(unknown.status).toBe(400);
     expect(unknown.body.error.code).toBe('SKU_NOT_FOUND');
   });

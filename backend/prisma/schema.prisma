@@ -124,6 +124,8 @@ model User {
   email     String   @unique @db.VarChar(255)
   name      String   @db.VarChar(120)
   role      UserRole @default(PLANNER)
+  passwordHash String? @db.VarChar(255)
+  refreshTokens   RefreshToken[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -136,6 +138,22 @@ model User {
   aiDecisions     AIInteraction[]         @relation("AIDecider")
   communications  CustomerCommunication[]
   exceptionsResolved Exception[]          @relation("ExceptionResolver")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @db.Char(64)
+  familyId  String    @db.Char(36)
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?   @db.VarChar(255)
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
 }
 
 model Sku {

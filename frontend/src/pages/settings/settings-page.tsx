@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Building2, Save, Users, Plug, RefreshCcw, ExternalLink } from 'lucide-react';
 import { errorMessage, useGetSettingsQuery, useGetUsersQuery, useListCustomersQuery, useListLocationsQuery, useRecalculateMutation, useSetCustomerPreferredLocationMutation, useUpdateSettingsMutation } from '../../app/api';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { setActingUser, pushToast } from '../../features/ui/uiSlice';
+import { pushToast } from '../../features/ui/uiSlice';
 import { PageHeader } from '../../components/common/page-header';
 import { Card, CardBody, CardHeader } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -16,7 +16,7 @@ import { fmtNum, humanize } from '../../lib/utils';
 
 export function SettingsPage() {
   const dispatch = useAppDispatch();
-  const actingId = useAppSelector((s) => s.ui.actingUserId);
+  const me = useAppSelector((s) => s.auth.user);
   const settings = useGetSettingsQuery();
   const users = useGetUsersQuery();
   const [update, uState] = useUpdateSettingsMutation();
@@ -72,12 +72,12 @@ export function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader title={<span className="flex items-center gap-2"><Users className="h-4 w-4" /> Users</span>} description="Choose who you act as. Every change is attributed to the selected user." />
+          <CardHeader title={<span className="flex items-center gap-2"><Users className="h-4 w-4" /> Users</span>} description="People who can sign in. Every change is attributed to the signed-in user." />
           <CardBody className="space-y-2">
             {users.isLoading ? <Skeleton className="h-32 w-full" /> : users.data?.map((u) => (
               <div key={u.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
                 <div className="min-w-0"><p className="truncate text-sm font-medium">{u.name}</p><p className="truncate text-xs text-muted-foreground">{u.email}</p></div>
-                <div className="flex items-center gap-2"><Badge tone="neutral">{humanize(u.role)}</Badge>{u.id === actingId ? <Badge tone="success">Acting</Badge> : <Button size="sm" variant="secondary" onClick={() => dispatch(setActingUser(u.id))}>Act as</Button>}</div>
+                <div className="flex items-center gap-2"><Badge tone="neutral">{humanize(u.role)}</Badge>{u.id === me?.id && <Badge tone="success">You</Badge>}</div>
               </div>
             ))}
           </CardBody>
@@ -89,7 +89,7 @@ export function SettingsPage() {
           <CardHeader title={<span className="flex items-center gap-2"><Plug className="h-4 w-4" /> Integration & API</span>} description="The REST API is versioned under /api/v1 and documented with OpenAPI." />
           <CardBody className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
             <div className="rounded-xl border border-border p-4"><p className="font-medium">Interactive API docs</p><p className="mt-1 text-xs text-muted-foreground">Swagger UI with every endpoint, schema and response code.</p><a href="/api/docs" target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-info hover:underline">Open Swagger <ExternalLink className="h-3 w-3" /></a></div>
-            <div className="rounded-xl border border-border p-4"><p className="font-medium">Acting identity</p><p className="mt-1 text-xs text-muted-foreground">Requests send <code className="font-mono">x-user-id</code>. This is a demo identity, not sign-in.</p><p className="tabular mt-2 text-xs">User #{fmtNum(actingId)}</p></div>
+            <div className="rounded-xl border border-border p-4"><p className="font-medium">Signed-in identity</p><p className="mt-1 text-xs text-muted-foreground">Requests carry a JWT access token (<code className="font-mono">Authorization: Bearer</code>). Every audit entry is attributed to this user.</p><p className="mt-2 text-xs">{me ? `${me.name} · ${me.role.toLowerCase()}` : '—'}</p></div>
           </CardBody>
         </Card>
         <Card>

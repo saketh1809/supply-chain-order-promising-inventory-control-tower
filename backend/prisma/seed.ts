@@ -28,6 +28,8 @@ import { OrdersService } from '../src/orders/orders.service';
 import { AllocationService } from '../src/allocation/allocation.service';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { addDaysYmd, todayYmd } from '../src/common/dates';
+import { hashPassword } from '../src/auth/password.util';
+import { resolveSeedPassword } from './seed-password';
 
 const ACTOR_PLANNER = 1;
 
@@ -144,8 +146,10 @@ async function main() {
       create: { id: 1, companyName: 'Northwind Supply Co.', timezone: 'UTC', defaultSafetyStock: 10 },
       update: {},
     });
+    // Demo users sign in with the seed password; only its bcrypt hash is stored.
+    const passwordHash = await hashPassword(resolveSeedPassword());
     for (const u of USERS) {
-      await prisma.user.upsert({ where: { id: u.id }, create: u, update: u });
+      await prisma.user.upsert({ where: { id: u.id }, create: { ...u, passwordHash }, update: { ...u, passwordHash } });
     }
 
     const locIds: Record<string, number> = {};
@@ -284,6 +288,7 @@ async function truncateAll(prisma: PrismaClient) {
     'AuditLog',
     'AppSetting',
     'Sequence',
+    'RefreshToken',
     'User',
   ];
   await prisma.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
